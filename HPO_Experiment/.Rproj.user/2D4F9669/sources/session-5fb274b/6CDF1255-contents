@@ -1,0 +1,89 @@
+---
+title: "Parameter Tuning of Random Forest using Design of Experiments"
+author: |
+  | Alan R. Vazquez
+  | Department of Industrial Engineering
+  | University of Arkansas
+output: html_document
+date: "`r Sys.Date()`"
+---
+
+Note: If you use this application, please cite "Vazquez, A. R. and Xuan, X. (2023). A review of undergraduate courses in Design of Experiments offered by American universities. Unpublished manuscript."
+
+## Introduction
+
+Data science is an interdisciplinary field that uses algorithms to extract knowledge and insights from data. A relevant problem in this field is classification. In this type of problem, a data set consisting of observations from several predictors and a binary response is available. The binary response takes two values (such as 0 or 1) to indicate the classes. The goal is to build an algorithm that correctly classifies the observations in the data set as well as those in new data sets that may be collected in the future. Classification problems include credit card fraud detection, diabetes prediction, and breast cancer prediction.
+
+Random forest is one of the most successful algorithms for tackling classification problems. The algorithm implements specialized statistical methods and techniques, and has several tuning parameters that affect its performance. In this project, you will find the most important tuning parameters of random forest that drive the so-called cross-validation accuracy. To this end, you will plan, perform, and analyze experiments. 
+
+The rest of this document gives an introduction to the main elements of random forest and the cross-validation accuracy. It also provides the questions that you must answer in the final project report. To conduct the experiments, we developed an R Shiny application that allows you to try different settings of the tuning parameters of random forest and calculate the cross-validation accuracy. The application is at the bottom of this page.
+
+### Random forest
+
+Random forest is an algorithm that classifies observations into one of two possible classes. However, this algorithm is considered a black-box algorithm because it is composed of elaborated and highly-technical techniques. For the project, you do not need to know all the details behind the algorithm. You only need to know the key idea behind it. Here, we provide a brief overview of the main elements of random forest.
+
+Random forest is built-up from decision (also called classification) trees. Essentially, a decision tree is an algorithm that classifies observations using a set of rules that act on the predictor’s values. A classification tree is composed of nodes; see Figure 1. At each node, a splitting criterion based on the predictors is constructed and the observations for which this criterion is true are sent to the right child node while instances for which the criteria is false are sent to the left child node. The top node of the tree is referred to as the root node while nodes at the bottom of the tree are referred to as terminal nodes. 
+
+<center>
+![Figure 1. Outline of a decision tree.](Picture1.png)
+</center>
+
+
+Decision trees are built using a data set and a specific method. In the method, it is possible to set the maximum number of nodes in a tree (controlled by the **maxnodes** parameter), the number of observations in each terminal node (controlled by the **nodesize** parameter), and the number of predictors used to build the trees (controlled by the **mtry** parameter). 
+
+To classify a new observation (not in the data set), we simply input the predictors’ values in the tree and record the classification. It is well-known that a single classification tree does not have the best classification performance for future observations. To overcome this issue, random forest constructs many decision trees from different random samples of the data set at hand, and combines their classifications. More specifically, a random sample with or without replacement (controlled by the **replace** parameter) is selected and a decision tree is built using the sample. The final class assigned by a random forest is the most common or frequent class assigned by the decision trees. This strategy is called majority voting. When constructing a random forest, it is possible to set the total number of trees used (controlled by the **ntree** parameter). Figure 2 shows a schematic of random forest. 
+
+<center>
+![Figure 2. Outline of random forest.](Picture2.png)
+</center>
+
+The classification performance of a random forest may be further improved by incorporating additional components to the algorithm. For instance, it is possible to assign different weights to the two classes (controlled by the **classwt** parameter) under study so as to emphasize or understate their correct classification. To this end, it is common to denote the classes as “0” and “1”, and use the later as the reference class. To specify the weights, we just need to set the weight for the reference class, since the weights for both classes must sum to one. It is also possible to change the so-called threshold for classifying observations (controlled by the **cuttoff** parameter). Technically, random forest does not output a class but a probability that the observation belongs to the reference class. A threshold is used to decide if the probability is high enough for the observation to be considered as belonging to the reference class ("1”). Otherwise, it is assigned to the “0” class.
+
+### Tuning parameters
+
+In this project, you will investigate the performance of random forest in terms of seven tuning parameters. The parameters are classified into three categories: general, specific to the decision trees, and technical. The parameters are shown below.
+
+<p style="color:lightblue"> _General parameters_ </p> 
+\textcolor{red}{General parameters}
+
+1. Number of trees (**ntree**). 
+2. Should the sampling of observations be done with replacement? (**replace**). 
+
+<p style="color:lightblue"> _Decision trees’ parameters_ </p> 
+3. Number of predictors used to build a tree (**mtry**). 
+4. Number of observations in each terminal node (**nodesize**). 
+5. Maximum number of nodes in a tree (**maxnodes**). 
+
+<p style="color:lightblue"> _Technical parameters_ </p>
+
+6. Prior probability for the reference class (**classwt**).
+7. Threshold for binary classification (**cutoff**).
+
+Table 1 shows the feasible settings of these parameters. For the parameter replace, a “0” indicates sampling without replacement while a “1” sampling with replacement.
+
+
+| Parameter | Low Level | High Level |
+|:---------:|:---------:|:----------:|
+| ntree     | 100 | 1000    |
+| replace   | False   | True     | 
+| mtry      | 2   | 6     | 
+| nodesize  | 1   | 11     | 
+| maxnodes  | 10   | 1000     | 
+| classwt   | 0.5  | 0.9     | 
+| cutoff    | 0.2   | 0.8     | 
+Table: Table 1 Tuning parameters of random forest and their ranges. 
+
+### Cross-validation accuracy
+
+The best way to measure the classification performance of a random forest is to use the metric called _accuracy_. This metric is the proportion of observations correctly classified by the random forest on a new data set (not used to build the algorithm). A higher accuracy is desired. However, an issue with computing the accuracy is that it is difficult to find new data sets for a problem.
+
+Cross-validation is a method that overcomes this issue using a clever trick. More specifically, cross-validation splits the data set at hand into two subsets. One subset is used to build a random forest and the other subset to evaluate the algorithm. In this way, we ensure that we have a new data set (not used by random forest) to compute the accuracy. It is recommended to repeat cross-validation several times, each time producing a different split (called fold) of the data set, a random forest, and accuracy value. The average accuracy among all repetitions (folds) of this process is called the cross-validation accuracy, which ranges from 0 to 1.
+
+The goal of this project is to identify the tuning parameters of random forest that affect the 10-fold cross-validation accuracy.  
+
+### Auxiliary data sets
+
+To study the performance of random forest, we need auxiliary data sets involving classification problems. In this project, we will use three data sets: Diabetes Health Indicators, Personal Key Indicators of heart Disease, and Cardiovascular Disease. These data sets will only help us to build a random forest for a classification problem and must not be analyzed. In this project, the variables under study are the tuning parameters of random forest and the response is the cross-validation accuracy. A data set will be assigned to each team at random.
+
+A brief description of the auxiliary data sets is included in the document called [Data_Description.pdf](https://drive.google.com/file/d/1YNEPfdR6lIXx0GFkCVCI79FhUtUzVh3L/view?usp=sharing).
+
