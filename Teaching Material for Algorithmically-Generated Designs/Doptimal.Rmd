@@ -1,0 +1,173 @@
+---
+title: "D-Optimal Designs for Screening Experiments"
+author: |
+  | Alan R. Vazquez
+  | Department of Industrial Engineering
+  | University of Arkansas
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    df_print: paged
+  pdf_document: default
+---
+
+```{r message=FALSE}
+library(AlgDesign) # To construct algorithmically-generated designs.
+library(corrplot) # To evaluate designs using color maps on correlations.
+library(writexl) # To save designs into excel.
+```
+
+**Note**: If you use this demo, please cite "Vazquez, A. R. and Xuan, X. (2023). A review of undergraduate courses in Design of Experiments offered by American universities. Unpublished manuscript."
+
+# Extraction experiment 
+
+Peter and Brad visit Dr. Zheng from GeneBe at Rixensart, Belgium. Dr Zheng works on reducing the E. coli and salmonella in food products. The current way to do that is to include chemical additives in the food, but there are some concerns of the effects in the long run. For that reason, Dr. Zheng wants to find a better alternative. According to preliminary studies, his team found that Bacillus subtilis (BS) is a strong inhibitor for these microbes. Currently, they produce BS in house, but the yield of extraction is low. The goal is to maximize it.
+
+There are six experimental factors to be studied at two levels. They are shown in the table below.
+
+| Factor                    | Low | High |
+|:--------------------------|----:|-----:|
+| Methanol (ml)             | 0   | 10   |
+| Ethanol  (ml)             | 0   | 10   |
+| Propanol (ml)             | 0   | 10   |
+| Butanol  (ml)             | 0   | 10   |
+| pH                        | 6   | 9    |
+| Time in solution (hours)  | 1   | 2    |
+Table: Factors under study and their levels.
+
+The budget of Dr. Zheng for the experiment is 15 test combinations or runs. Given this budget, Peter and Brad recommend to study a linear regression model with the intercept and the 6 main effects of the factors. They also recommend to use 12 runs so that 3 runs can be used for confirmatory experiments.  
+
+# Design construction and evaluation
+
+Let’s construct a design with the `AlgDesign` package. To this end, we start by constructing the candidate set consisting of the 64 test combinations in a two-level full factorial design in 6 factors.
+
+```{r}
+candidate.set <- gen.factorial(levels=2, nVars = 6, 
+                              varNames = c("Methanol","Ethanol","Propanol", 
+                                           "Butanol", "pH", "Time"))
+```
+
+Before we use the `optFederov` function, we need to give some details on how the design will be constructed. By default, the function constructs a **D-optimal design**, which is attractive to provide precise estimates for the coefficients in a linear regression model. In other words, it provides estimates with a small variance. Technically, a D-optimal design minimizes the determinant (which explains the "D" in its name) of the variance-covariance matrix of the ordinary least squares estimates of the coefficients in the model. In this way, it reduces multicollinearity, increases the statistical power of the t-tests for the significance of coefficients, and minimizes their confidence intervals. The details behind D-optimal designs are in Chapter 2 of "Optimal Design of Experiments: A Case Study Approach" by Goos and Jones. 
+
+We now construct the design by supplying the candidate set, the run size and the model under study to the `optFederov` function. We make explicit that we want a D-optimal design by setting the argument `criterion = "D"`.
+
+```{r}
+opt.design <- optFederov(~Methanol + Ethanol + Propanol + Butanol + pH + Time,
+                          data = candidate.set, criterion = "D", nTrials = 12, 
+                         nRepeats = 1000)
+print.data.frame(opt.design$design)
+```
+
+We evaluate the design using a color map on correlations. 
+
+```{r, fig.align='center'}
+D.opt <- opt.design$design # Extract the design.
+# Create the model matrix including main effects and two-factor interactions.
+X.opt <- model.matrix(~(Methanol + Ethanol + Propanol + Butanol 
+                                   + pH + Time)-1, data.frame(D.opt))
+
+# Create color map on pairwise correlations.
+contrast.vectors.correlations.opt <- cor(X.opt)
+corrplot(contrast.vectors.correlations.opt, type = "full", addgrid.col = "gray",
+         tl.col = "black", tl.srt = 90, method = "color", tl.cex=0.8)
+```
+
+Since all non-diagonal cells in the color map are white, we have that the 12-run design provides coefficient estimates that are not correlated. The excellent quality of the design can be seen from the variance inflation factors calculated above. The VIF values equal one for all coefficients.
+
+```{r}
+# Compute the model matrix.
+X.opt.me <- model.matrix(~(Methanol + Ethanol + Propanol + Butanol 
+                                   + pH + Time), data.frame(D.opt))
+# Calculate the variance-covariance matrix.
+XtX <- t(X.opt.me)%*%X.opt.me
+inv.XtX <- solve(XtX)
+# Record the diagonal elements of this matrix.
+var.eff <- diag(inv.XtX)
+```
+
+```{r, collapse=TRUE, echo=c(93, 95)}
+cat("Variance the estimates when sigma^2 = 1 \n")
+print(var.eff) 
+cat("\n Variance inflation factors \n")
+print(nrow(D.opt)*var.eff)
+```
+
+Given that the design is excellent for the experimental problem, we proceed to save it into an excel file using the actual units (instead of the coded units +1 and -1) of the levels of the factors. Unfortunately, the `AlgDesign` library does not have functions to save the designs with the actual units. So, we have to do it manually using the code below and the function `write_xlsx` from the `writexl` package.
+
+```{r}
+actual.design <- D.opt
+actual.design[,1:4][actual.design[,1:4]==1] <- 10
+actual.design[,1:4][actual.design[,1:4]==-1] <- 0
+actual.design[,5][actual.design[,5]==1] <- 9
+actual.design[,5][actual.design[,5]==-1] <- 6
+actual.design[,6][actual.design[,6]==1] <- 2
+actual.design[,6][actual.design[,6]==-1] <- 1
+print(actual.design)
+write_xlsx(actual.design, "D-optimal design with 12 runs and 6 factors.xlsx")
+```
+
+# Data Analysis
+
+Dr. Zheng conducted the experiment using a 12-run 6-factor design constructed by Peter and Brad. The data collected from the experiment is available in the file "Extraction_Data.csv," which is loaded below.
+
+```{r}
+extraction.data.original <- read.csv("data/Extraction_Data.csv", header = T)
+print(extraction.data.original)
+```
+
+The design in this data set has the actual units of the levels of the factors. However, a better analysis involving less multicollinearity can be done by transforming the actual units to coded levels, -1 and +1. Below, we show how to code the factor levels and output a new data set.
+
+```{r}
+extraction.data.coded <- extraction.data.original
+extraction.data.coded[,1:4][extraction.data.coded[,1:4]==10] <- 1
+extraction.data.coded[,1:4][extraction.data.coded[,1:4]==0] <- -1
+extraction.data.coded[,5][extraction.data.coded[,5]==9] <- 1
+extraction.data.coded[,5][extraction.data.coded[,5]==6] <- -1
+extraction.data.coded[,6][extraction.data.coded[,6]==1] <- -1
+extraction.data.coded[,6][extraction.data.coded[,6]==2] <- 1
+print(extraction.data.coded)
+```
+
+Dr. Zheng fitted a model including the main effects of the 6 factors.
+
+```{r}
+me.model <- lm(Yield~., data = extraction.data.coded)
+summary(me.model)
+```
+
+We see that the main effects of Methanol, Ethanol, pH and Time are significant, because their p-values are smaller than a level of $\alpha = 0.05$. To refine the model, we remove the non-significant effects.
+
+```{r}
+me.model.reduced <- lm(Yield~Methanol+Ethanol+pH+Time, data = extraction.data.coded)
+summary(me.model.reduced)
+```
+
+The output above shows that all main effects are still significant in the reduced model. 
+
+The final fitted model then is 
+$$
+\hat{y} = 27.79 + 8.41 x_1 + 4.27 x_2 - 2.47 x_5 + 5.21 x_6,
+$$
+where $\hat{y}$ is the predicted response and $x_1, x_2, x_5$, and $x_6$ denote the coded levels of factors methanol, ethanol, pH and time, respectively. 
+
+Using the estimated model, we can identify a combination of the levels of the factors that maximizes the extration yield. This combination has $x_1, x_2, x_5$, and $x_6$ equal to +1, +1, -1 and +1. More specifically, we should include methanol and ethanol and use a pH level of 6 and 2 hours in solution. The other components, propanol and butanol, should not be included. The predicted extraction yield is 48.15 mg / 100 ml.
+
+Finally, we inspect the residuals of the reduced model. Generally, the residuals show no concerning patters and support the assumptions of a linear regression model (independence, constant variance, and normality).
+
+```{r, fig.align='center'}
+yield.resid <- residuals(me.model.reduced)
+pred.yield <- fitted(me.model.reduced)
+par(mfrow = c(1,3))
+qqnorm(yield.resid, col = 'lightblue', pch = 19); qqline(yield.resid)
+grid(NULL, NULL, lty = 6) # Add a grid.
+plot(x = pred.yield, y = yield.resid, col = 'lightblue', pch = 19,
+     xlab = "Predicted", ylab = "Residuals")
+grid(NULL, NULL, lty = 6) # Add a grid.
+N <- nrow(extraction.data.coded)
+plot(x = 1:N, y = yield.resid, col = 'lightblue', pch = 19,
+     xlab = "Run Order", ylab = "Residuals")
+grid(NULL, NULL, lty = 6) # Add a grid.
+```
+
+We conclude the demo by mentioning that Peter and Brad carried out an alternative data analysis using all-subsets regression. They found a significant two-factor interaction involving Ethanol and Propanol. Details on this alternative analysis are in Chapter 2 of "Optimal Design of Experiments: A Case Study Approach" by Goos and Jones.
+

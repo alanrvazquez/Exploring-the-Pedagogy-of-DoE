@@ -1,0 +1,185 @@
+---
+title: "Algorithmic Augmentation of a Screening Design"
+author: |
+  | Alan R. Vazquez
+  | Department of Industrial Engineering
+  | University of Arkansas
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    df_print: paged
+  pdf_document: default
+---
+
+```{r message=FALSE}
+library(FrF2) # To construct two-level fractional factorial designs.
+library(AlgDesign) # To construct algorithmically-generated designs.
+library(corrplot) # To evaluate designs using color maps on correlations.
+```
+
+**Note**: If you use this demo, please cite "Vazquez, A. R. and Xuan, X. (2023). A review of undergraduate courses in Design of Experiments offered by American universities. Unpublished manuscript."
+
+# Eye focus time experiment
+
+A human performance analyst works on an experiment to study eye focus time and has built an apparatus in which several factors can be controlled during the test. The factors he initially regards as important are acuity or sharpness of vision (A), distance from target to eye (B), target shape (C), illumination level (D), target size (E), target density (F), and subject (G). Two levels of each factor are considered. 
+
+The analyst suspects that only a few of these 7 factors are influential, and that three-factor and high-order interactions between the factors can be neglected. On the basis of this assumption, he decides to run a screening experiment to identify the most important factors and then to concentrate further study on those. The design is a $2^{7-4}$ fractional factorial design with 8 runs and a resolution of III. The design can be constructed using the `FrF2` library. 
+
+```{r}
+frfact.design <- FrF2(nruns = 8, nfactors = 7, randomize = F)
+```
+
+The generators, alias structure, resolution and world length pattern of the design are shown below.
+
+```{r, collapse = TRUE, echo = c(35, 37, 39)}
+cat("Generators of the design \n")
+generators(frfact.design)
+cat("Alias structure \n")
+design.info(frfact.design)$aliased
+cat("Resolution and word length pattern \n")
+design.info(frfact.design)$catlg.entry
+```
+
+The data collected by the analyst using this design is available in the file "Eye_Data.csv." We load the data set below.
+
+```{r}
+eye.data <- read.csv("data/Eye_Data.csv", header = T)
+print(eye.data)
+```
+
+# Initial Data Analysis
+
+Since the number of factors is very close to the number of runs, it is sensible to start by fitting the model including the intercept and the main effects only. 
+
+```{r}
+eye.model <- lm(Time~., data = eye.data)
+```
+
+Since it is a fractional factorial design, we can use the normal and half-normal plots to identify the active effects.
+
+```{r, fig.align='center'}
+par(mfrow = c(1,2))
+DanielPlot(eye.model, half =F, cex.fac = 1, cex.lab = 1, cex.pch = 1, cex.legend = 1)
+grid(NULL, NULL, lty = 6) # Add a grid.
+DanielPlot(eye.model, half =T, cex.fac = 1, cex.lab = 1, cex.pch = 1, cex.legend = 1)
+grid(NULL, NULL, lty = 6) # Add a grid.
+```
+
+From a visual inspection to these plots, we conclude that the important effects are the main effects of factors A, B and D, as their estimates are far from the other four in both plots. Therefore, our second model under consideration is a model with the intercept and the main effects of the factors A, B and D. We fit the model below and show a summary of its fit.
+
+```{r}
+reduced.eye.model <- lm(Time ~ A + B + D,data = eye.data)
+summary(reduced.eye.model)
+```
+
+We see that the three main effects are significant, because their p-values are smaller than a level of $\alpha = 0.05$. Although this conclusion may sound exciting, it is causes some confusion if we bring two-factor interactions into the picture. Recall that the fractional factorial design used has a resolution of III, which implies that the main effects are aliased with some two-factor interactions. We can inspect the aliasing among these effects using the `alias` function on a model fit involving these effects.
+
+```{r}
+eye.model.int <- lm(Time~.^2, data = eye.data) # Fit full model.
+alias(eye.model.int) # Study the alias among its effects
+```
+
+The output matrix above is called the *aliasing matrix*. Each column corresponds to an effect in the model including the intercept and all main effects, and each row corresponds to a two-factor interaction. An entry equal to 1 means that the corresponding pair of effects are fully aliased. An entry equal to 0 means that the effects are not aliased at all. This is akin to showing the pairs of effects that are fully correlated or not correlated at all.
+
+The aliasing matrix shows that the significant main effects are aliased with some two-factor interactions. More specifically, we have that $A = BD = CE = FG$, $B = AD = CF = EG$, and $D = AB = CG = EF$. In any case, we have narrowed down the list of effects to only three chains of effects. If we believe in the **effect heredity principle** (meaning that interactions involving significant main effects are more important than interactions without this pattern), we can simplify the alias chains to $A = BD$, $B = AD$, and $D = AB$.
+
+An implication of the alias chains is that the interpretation of these results from the last model we fitted is not unique. This is because we could conclude that all main effects are the true effects, or perhaps, A, B, and the AB interaction, or  B, D, and the BD interaction, or even A, D, and the AD interaction. To solve this issue, we need a **follow-up experiment** to collect additional data.
+
+# Follow-up Experiment
+
+## Design Construction
+
+We will create a follow-up experiment to resolve the ambiguities from the previous analysis. Our follow-up experiment should allow us to estimate the two-factor interactions $AB$, $AD$ and $BD$, simultaneously. We use algorithmically-generated designs to plan the follow-up experiment. To this end, we use the `optFederov` function of the `AlgDesign` library.
+
+To augment a design, we need four types of input. The first one is an augmented candidate set consisting of (1) the 128 test combinations of a full factorial design in 7 factors, and (2) the design from the first experiment.
+
+```{r}
+# Input 1: Augmented candidate set.
+# First, store the initial design.
+initial.design <- eye.data[,1:7]
+# Second, construct the full factorial design in 7 factors. 
+full.fact <- gen.factorial(levels = 2, nVars = 7, 
+                           varNames = c("A", "B", "C", "D", "E", "F", "G"))
+# Third, concatenate the previous designs to construct the augmented 
+# candidate set.
+aug.cand.set <- rbind(initial.design, full.fact)
+```
+
+The second input is a vector with the row indices of the test combinations from the augmented design that were part of the first experiment. In our case, the first 8 test combinations of the augmented candidate set were part of the initial design. So, we define the vector containing the numbers 1, 2, ..., 8.
+
+```{r}
+# Input 2: Vector with rows of the first design.
+initial.tests <- 1:8
+```
+
+The third input is the number of test combinations in the full design (after augmentation). Let's assume that the analyst has budget for other 8 tests. In this case, the number of tests in the full design is 16. 
+
+```{r}
+# Input 3: Number of tests in the full design.
+Ntotal <- 16
+```
+
+The fourth input we need is to set `augment = TRUE` in the `optFedorov` function. With all these input, we can now construct the augmented design for studying the model including the intercept, the main effects of factors A, B, and D, and the interactions $AB$, $AD$ and $BD$. The augmented design is a 7-factor 16-run design shown below.
+
+```{r}
+# Find the test combinations in the candidate set
+augmented.design <- optFederov(~ A + B + D + A:B + A:D + B:D, criterion = "D",
+                               data = aug.cand.set, nTrials = Ntotal, 
+                               nRepeats = 1000, augment = TRUE,
+                               rows = initial.tests)
+print(augmented.design$design)
+```
+
+It is sensible to add an extra two-level blocking factor to account for a possible shift in mean response between the original and the follow-up experiments. So, the actual design is shown below. A +1 or -1 in the Block column means that the observation is from the first and second experiment, respectively.
+
+```{r}
+# Include a blocking factor.
+new.design <- data.frame("Block"  = c(rep(1, 8), rep(-1, Ntotal - 8)), 
+                         augmented.design$design)
+print.data.frame(new.design)
+```
+
+We evaluate the design using the color map on correlations. The non-diagonal entries in the color map are white, meaning that the estimates given by the augmented design are uncorrelated (or not aliased) with each other.
+
+```{r, fig.align='center'}
+# Define model matrix with Block effect since it is part of the new model.
+X.opt.aug <- model.matrix(~Block + A + B + D + A:B + A:D + B:D -1, new.design)
+
+# Create color map on pairwise correlations.
+contrast.vectors.correlations.opt <- cor(X.opt.aug)
+corrplot(contrast.vectors.correlations.opt, type = "full", addgrid.col = "gray",
+         tl.col = "black", tl.srt = 90, method = "color", tl.cex=0.8)
+```
+
+We can also evaluate the variance inflation factor (VIF) for the estimates of the coefficients in the model. The VIF values are all equal to 1, meaning that there is no problem with multicollinearity for the effects in the model.
+
+```{r}
+# Include the intercept.
+X.opt.aug <- model.matrix(~Block +A + B + D + A:B + A:D + B:D, new.design)
+# Variance Inflation Factors.
+var.eff <- diag(solve(t(X.opt.aug)%*%X.opt.aug))
+print(data.frame("VIF" = Ntotal*var.eff))
+```
+
+
+## Data Analysis
+
+The analyst conducted the additional runs and obtained the responses. The augmented data set is in the file "Augmented_Eye_Data.csv," which we load below.
+
+```{r}
+augmented.eye.data <- read.csv("data/Augmented_Eye_Data.csv", header = T)
+print(augmented.eye.data)
+```
+
+Using the data, we fit the model of interest with the intercept, the main effects of factors A, B, and D, and the interactions $AB$, $AD$ and $BD$.
+
+```{r}
+aug.lm <- lm(Time~Block +A + B + D + A:B + A:D + B:D, data = augmented.eye.data)
+summary(aug.lm)
+```
+
+The output above shows that the significant effects are $B$, $D$ and $BD$, because their p-values are smaller than a level of $\alpha = 0.05$. Note that the block effect is not significant since the p-value was larger than 0.05. Details on augmenting experimental designs are in Chapter 3 of "Optimal Design of Experiments: A Case Study Approach" by Goos and Jones. 
+
+## References
+
+The eye focus time experiment is taken from Chapter 8 of "Design and Analysis of Experiments, 8th Ed" by Montgomery.

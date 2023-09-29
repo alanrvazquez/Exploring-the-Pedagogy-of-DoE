@@ -1,0 +1,220 @@
+---
+title: "An I-optimal design for response optimization"
+author: |
+  | Alan R. Vazquez
+  | Department of Industrial Engineering
+  | University of Arkansas
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    df_print: paged
+  pdf_document: default
+---
+
+```{r message=FALSE}
+library(FrF2) # To construct two-level fractional factorial designs.
+library(AlgDesign) # To construct algorithmically-generated designs.
+library(corrplot) # To evaluate designs using color maps on correlations.
+library(Vdgraph) # To construct Fraction of Design Space plots. 
+```
+
+**Note**: If you use this demo, please cite "Vazquez, A. R. and Xuan, X. (2023). A review of undergraduate courses in Design of Experiments offered by American universities. Unpublished manuscript."
+
+# 3D bone scaffold experiment
+
+Three-dimensional (3D) scaffolds mimic the composition and mechanical properties of bone. They are used in surgical operations to repair fractures and common bone injuries. 3D scaffolds must maintain a good level of porosity to regulate the transport of oxygen and nutrients, and overcome osteogenesis.
+  
+A group of scientists conducted an experiment to study four process factors of 3D scaffolds that affect the porosity percentage. The factors were identified from previous screening experiments. The factors and their levels are shown in the table below. 
+
+|         |                             | Low   | Medium  | High |
+| :-----: | :-------------------------- | ----: | ------: | ----:|
+| Label   | Factor (units)              | -1    | 0       | +1   |
+| $X_1$   | Strand diameter ($\mu$m)        | 300   | 380     | 460  |
+| $X_2$   | PLGA concentration (% w/v)  | 8     | 10      | 12   |
+| $X_3$   | nHA content (% w/w)         | 0     | 10      | 20   |
+| $X_4$   | Temperature ($^{o}C$)       | -20   | -10     | 0    |
+Table: Factors under study and their levels.
+
+The actual levels of the factors in the table above can be transformed into coded levels between -1 and +1 using the formulas:
+
+- $x_1 = (X_1 - 380)/80$.
+- $x_2 = (X_2 - 10)/2$.
+- $x_3 = (X_3 - 10)/10$.
+- $x_4 = (X_4 + 10)/10$.
+
+The goal is to find the optimal settings of the factors that maintain a porosity greater than 85%. The budget for the experiment allows for performing 18 runs. The full quadratic model is under study:
+$$
+Y = \beta_0 + \sum_{j = 1}^{4} \beta_j x_j + \sum_{j = 1}^{4} \beta_{jj} x^2_{j} + \sum_{j = 1}^{4} \sum_{l>j}^{4} \beta_{jl} x_{j} x_{l} + \epsilon,
+$$
+where $Y$ is the percentage of porosity, $x_j$ are the factors in coded levels ranging from -1 to +1, $\beta_j$ is the coefficient of the main effect for the $j$th factor, $\beta_{jl}$ is the coefficient for the interaction between the $j$th and $l$th factors, $\beta_{jj}$ is the quadratic effect of the $j$th factor, and $\epsilon$ is the random error that is assumed to follow a normal distribution with mean 0 and variance $\sigma^2$.
+
+# Design construction and evaluation
+
+Let’s construct an algorithmically-generated design using the `optFederov` function of the `AlgDesign` package. Since we wish to study quadratic terms, the candidate set must contain three levels.
+
+```{r}
+candidate.set <- gen.factorial(levels = 3, nVars = 4, 
+                              varNames = c("x1","x2","x3","x4"))
+```
+
+An **I-optimal design** is tailored to developing a model that provides precise predictions. More specifically, it minimizes the variance of the model prediction for any combination of the settings of the factors (even those that are not in the design). Technically, it minimizes the integrated (which explains the "I" in its name) prediction variance of the model over the entire experimental region. This is in contrast with a D-optimal design that minimizes the determinant of the variance-covariance matrix and promotes a precise estimation of the coefficients, instead of precise predictions. Details on I-optimal designs are in Chapter 4 of "Optimal Design of Experiments: A Case Study Approach" by Goos and Jones. 
+
+Because the goal of the experiment is response optimization, it is better to use an I-optimal design to produce accurate predictions of the response. To construct this design, we set the argument `criterion = "I"` in the `optFederov` function. 
+
+```{r}
+# Note: ~quad(x1, x2, x3, x4) is a fancy way to specify a full quadratic
+# model in four factors x1, x2, x3, and x4.
+opt.design <- optFederov(~quad(x1, x2, x3, x4), data = candidate.set, 
+                         nTrials = 18, criterion = "I", nRepeats = 1000)
+I.opt <- opt.design$design # Extract the design.
+print.data.frame(I.opt) # Show the design.
+```
+
+We visualize the aliasing in this design using a color map on correlations.
+
+```{r, fig.align='center'}
+# Create the model matrix including main effects and two-factor interactions.
+X.opt <- model.matrix(~quad(x1, x2, x3, x4)-1, data.frame(I.opt))
+
+# Create color map on pairwise correlations.
+contrast.vectors.correlations.opt <- cor(X.opt)
+corrplot(contrast.vectors.correlations.opt, type = "full", addgrid.col = "gray",
+         tl.col = "black", tl.srt = 90, method = "color", tl.cex=0.8)
+```
+
+The color map shows that there is some partial aliasing in the design. We can further inspect the estimation properties of the I-optimal design using the variance inflation factor (VIF).
+
+```{r}
+X.opt.quad <- model.matrix(~quad(x1, x2, x3, x4), data.frame(I.opt))
+XtX <- t(X.opt.quad)%*%X.opt.quad
+inv.XtX <- solve(XtX)
+var.eff <- diag(inv.XtX)
+```
+
+```{r, collapse = TRUE, echo = c(95)}
+cat("\n Variance inflation factors \n")
+print(nrow(I.opt)*var.eff)
+```
+
+We see that all VIF values are smaller than 10. The larger VIF values are for the quadratic effects, which is common when working with these effects.  
+
+To evaluate the performance of the I-optimal design in terms of predictions, we use the **Fraction of Design Space** (FDS) plot. The plot shows the minimum median and maximum prediction variance through the entire experimental region. The prediction variance is relative to the error variance $\sigma^2$, which allows us to study the predictive performance of the model without estimating this parameter.
+
+To construct the plot, we use the `FDSPlot` function from the `Vdgraph` library. The input to the function are an experimental design and a value for the argument `mod` which specifies the linear regression model under study. A value of 0 for this argument implies a model with the intercept and the linear terms (main effects) only. A value of 1 implies a model with the intercept, the linear terms, and the two-factor interactions. A value of 2 implies a full quadratic model, which is our model under study.
+
+```{r, fig.align='center'}
+set.seed(12345)
+FDSPlot(des = I.opt, mod = 2)
+grid(NULL, NULL, lty = 6) # Add a grid.
+```
+
+The lower the curve the better. This is because this indicates that the design has a small prediction variance across a large portion of the experimental region. The FDS plot shows that for 50% of the experimental region, the (relative) prediction variance is smaller than 0.6. The maximum (relative) prediction variance is smaller than 1.2.
+
+It is instructive to compare the I-optimal design versus a D-optimal design of the same size and for the same model. We construct the D-optimal design by setting `criterion = "D"` in the `optFedorov` function.
+
+```{r}
+opt.design <- optFederov(~quad(x1, x2, x3, x4), candidate.set, nTrials = 18, 
+                         criterion = "D", nRepeats = 1000)
+D.opt <- opt.design$design
+```
+
+We now compare the designs using the FDS plot and the `Compare2FDS` function from the `Vdgraph` library. The arguments of this function are similar to those of the `FDSPlot` function, except that it takes two designs instead of one.
+
+```{r, fig.align='center'}
+set.seed(12345)
+Compare2FDS(I.opt, D.opt, "I-optimal", "D-optimal", mod = 2)
+grid(NULL, NULL, lty = 6) # Add a grid.
+```
+
+The FDS plot above shows that the I-optimal design is better than the D-optimal design, because the solid black line is under the dashed red line. Therefore, the I-optimal design provides smaller (relative) prediction variances than the D-optimal design across the entire experimental region.
+
+# Data Analysis
+
+An I-optimal design with 18 runs was actually conducted in the 3D scaffold experiment. The data is available in the file "scaffold_data.csv," which we load below. The data has an additional response called "modulus" that we do not consider here.
+
+```{r}
+scaffold.data.original <- read.csv("data/scaffold_data.csv", header = T)
+print(scaffold.data.original)
+```
+
+For a better analysis with lesss multicollinearity, we code the actual levels of the factors to -1, 0 and +1. The new data set with the coded levels is constructed below.
+
+```{r}
+scaffold.data.coded <- scaffold.data.original
+scaffold.data.coded[,1] <- (scaffold.data.original[,1] - 380)/80
+scaffold.data.coded[,2] <- (scaffold.data.original[,2] - 10)/2
+scaffold.data.coded[,3] <- (scaffold.data.original[,3] - 10)/10
+scaffold.data.coded[,4] <- (scaffold.data.original[,4] + 10)/10
+print(scaffold.data.coded)
+```
+
+We now fit the full quadratic model and show a summary of its fit. 
+
+```{r}
+# Note: For an unknown reason, the fancy formula ~quad(x1, x2, x3, x4) does not 
+# work with the lm function.
+quad.model <- lm(porosity ~ (X1+X2+X3+X4)^2 + I(X1^2)+I(X2^2)+I(X3^2)+I(X4^2), 
+                 data = scaffold.data.coded)
+summary(quad.model)
+```
+
+The output above shows that the main effects of $X_2$, $X_3$, and $X_4$, and the interaction $X_1 X_4$ are significant, because their p-values are smaller than a level of $\alpha = 0.05$. We now fit a reduced model with the significant effects only. For technical reasons, it was decided to also include the interaction $X_1 X_3$ and the quadratic term of factor $X_2$ in this model. 
+
+```{r}
+quad.model.reduced <- lm(porosity ~ X1 + X2 + X3 + X4 + X1:X3+X1:X4+I(X2^2), 
+                 data = scaffold.data.coded)
+summary(quad.model.reduced)
+```
+
+We see that all effects are significant, except the main effect of $X_1$. This main effect was kept for consistency.
+
+The final fitted equation then is 
+$$
+\hat{y} = 89.74 + 0.01 x_1 -1.15 x_2 + 0.71 x_3 -0.67 x_4 + 0.58 x_1 x_3 + 0.60 x_1 x_4 + 0.87 x^2_2,
+$$
+where $\hat{y}$ is the predicted percentage of porosity. 
+
+# Response optimization
+
+Using the estimated model above, we can find the settings that maximize the porosity percentage. To this end, we use the `optim` function. This function needs an objective function with decision variables in a vector labeled as `x`. In our case, the objective function is the estimated model which we define below. 
+
+```{r}
+obj_func <- function(x){
+    pred.partA <- 89.73654 + 0.01464*x[1] -1.15076*x[2] + 0.71000*x[3] - 0.67107*x[4] 
+    pred.partB <- 0.58463 *x[1]*x[3] + 0.60195*x[1]*x[4] + 0.87220*x[2]*x[2]
+    pred.y <- pred.partA + pred.partB
+    return(-1*pred.y) # Because the 'optim' function minimizes.
+}
+```
+
+Note that the input to the objective function above are the values of the factors $X_1$, $X_2$, $X_3$, and $X_4$ which are involved in the final estimated model. For technical reasons, the value of the objective function is actually the negative of the predicted porosity.
+
+Now, we use the `optim` function in R. In the function, the argument `par` takes the initial values for the factors. The arguments `lower` and `upper` take the lower and upper levels, and the `method = "L-BFGS-B"` sets the optimization algorithm. Te technical details of the algorithm are beyond the scope of this demo.
+
+```{r}
+optim(par = c(0, 0, 0, 0), fn = obj_func, lower = -1, upper = 1, method = "L-BFGS-B")
+```
+
+The coded settings that maximize the response are $x_1 = -1$, $x_2 = -1$, $x_3 = 1$, and $x_4 = -1$. Of course, we should decode these values so we can obtain the actual settings. The optimal settings are $X_1 = 300\; \mu m$, $X_2 = 9\; \% w/v$, $X_3 = 10 \; \% w/w$, and $X_4 = -20 \; ^{o}C$. This results in a predicted porosity percentage of 93%.
+
+Finally, we inspect the residuals of the reduced model. Generally, the residuals show no concerning patters and support the assumptions of a linear regression model (independence, constant variance, and normality).
+
+```{r, fig.align='center'}
+porosity.resid <- residuals(quad.model.reduced)
+pred.porosity <- fitted(quad.model.reduced)
+par(mfrow = c(1,3))
+qqnorm(porosity.resid, col = 'lightblue', pch = 19,); qqline(porosity.resid)
+grid(NULL, NULL, lty = 6) # Add a grid.
+plot(x = pred.porosity, y = porosity.resid, col = 'lightblue', pch = 19,
+     xlab = "Predicted", ylab = "Residuals")
+grid(NULL, NULL, lty = 6) # Add a grid.
+N <- nrow(scaffold.data.coded)
+plot(x = 1:N, y = porosity.resid, col = 'lightblue', pch = 19,
+     xlab = "Run Order", ylab = "Residuals")
+grid(NULL, NULL, lty = 6) # Add a grid.
+```
+
+## References
+
+The 3D bone scaffold experiment is from Yousefi, A.-M., Liu, J., Sheppard, R., Koo, S., Silverstein, J., Zhang, J., and James, P. F., "I‐Optimal Design of Hierarchical 3D Scaffolds Produced by Combining Additive Manufacturing and Thermally Induced Phase Separation" published in Applied Bio Materials in 2019.
+

@@ -1,0 +1,195 @@
+---
+title: "A D-optimal design with a hard-to-change factor"
+author: | 
+  | Alan R. Vazquez
+  | Department of Industrial Engineering
+  | University of Arkansas
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    df_print: paged
+  pdf_document: default
+---
+```{r message=FALSE}
+library(AlgDesign) # To construct algorithmically-generated designs.
+library(nlme) # To fit linear mixed effects models.
+```
+
+**Note**: If you use this demo, please cite "Vazquez, A. R. and Xuan, X. (2023). A review of undergraduate courses in Design of Experiments offered by American universities. Unpublished manuscript."
+
+# A 3D bone scaffold experiment with a hard-to-change factor
+
+This experiment involves another study of three-dimensional (3D) scaffolds. They mimic the composition and mechanical properties of bone to enable patient's body to regenerate damaged tissue without the need for a bone transplant. An important quality characteristic of a scaffold architecture is its porosity, because it has a critical influence on bone ingrowth into the scaffold. The goal of this experiment is to study the effect of three factors on the percentage of porosity of the scaffold. 
+
+These factors under study define the microporous structure of a scaffold. They are studied at three levels given in the table below.
+
+|         |                             | Low   | Medium  | High |
+| :-----: | :-------------------------- | ----: | ------: | ----:|
+| Label   | Factor (units)              | -1    | 0       | +1   |
+| $X_1$  | Temperature ($^\circ$C)      | -20   | -10     |  0   |
+| $X_2$  | PLGA concentration (% w/v)   | 7     | 10      | 13   |
+| $X_3$  | nHA concentration(% w/w)     | 0     | 15      | 30   |
+Table: Factors under study and their levels.
+
+The actual levels of the factors in the table above can be transformed into coded levels between -1 and +1 using the formulas:
+
+- $x_1 = (X_1 + 10)/10$.
+- $x_2 = (X_2 - 10)/3$.
+- $x_3 = (X_3 - 15)/15$.
+
+The budget for the experiment allows for performing 18 runs. However, there is a practical complication when experimenting with the temperature ($X_1$). This factor is "hard-to-change" because it is time-consuming to adjust the temperature in the laboratory equipment. The other factors $X_2$ and $X_3$ are not time-consuming to change and so, they are called "easy-to-change" factors.     
+
+**Split-plot designs** are attractive to deal with hard-to-change factors. These designs have groups of sequential runs in which only one level of the hard-to-change factor is used. An split-plot design is then more time efficient since the hard-to-change factor does not have to be adjusted in every run, as it is the case when using a completely randomized design. However, the fact that the runs of the experiments are not being completely randomized requires a more sophisticated data analysis, which we will illustrate later. First, let's show you how to construct an split-plot design.   
+
+# Design construction and evaluation
+
+For the experiment, the initial model under study is a full quadratic model:
+
+$$
+Y = \beta_0 + \sum_{j = 1}^{3} \beta_j x_j + \sum_{j = 1}^{3} \beta_{jj} x^2_{j} + \sum_{j = 1}^{3} \sum_{l>j}^{3} \beta_{jl} x_{j} x_{l} + \epsilon,
+$$
+where $Y$ is the percentage of porosity, $x_j$ are the factors in coded levels ranging from -1 to +1, $\beta_j$ is the coefficient of the main effect for the $j$th factor, $\beta_{jl}$ is the coefficient for the interaction between the $j$th and $l$th factors, $\beta_{jj}$ is the quadratic effect of the $j$th factor, and the $\epsilon$ is the random error that follows a normal distribution with mean 0 and variance $\sigma^2$. Later, we will see that the actual model for the analysis has an extra element. However, the initial model above is enough to construct an split-plot design.
+
+Since the goal is to study the effect of the factors on the response, we will use a D-optimal split-plot design with 18 runs. To construct this design, we need the `optBlock` function from the `AlgDesign` package with three types of input. The first one is a candidate set consisting of the 9 test combinations of a three-level full factorial design involving the two easy-to-change factors, $X_2$ and $X_3$.
+
+```{r}
+# Input 1: Candidate set with the easy-to-change factors.
+candidate.set <- gen.factorial(levels=3, nVars = 2, varNames = c("x2","x3"))
+```
+
+The second input is a vector with the number of runs for each batch or group. Specifically, it is a $1 \times b$ vector whose entries are the batch sizes and $b$ is the number of batches. In our case, we want three batches of runs because we want to experiment with three levels of temperature ($X_1$). Each batch which will have one of the three levels. Since we seek for an 18-run design, the number of runs per batch must be 6.
+
+```{r}
+# Input 2: Vector with batch sizes.
+batch.sizes <- c(6, 6, 6)
+```
+
+The third input is a data frame with the settings of the hard-to-change factor that will be assigned to each batch of runs. The data frame has $b$ entries equal to the coded levels of temperature. Ideally, the order of the levels is randomized to protect against unknown sources of variability in the experiment. To this end, we use the function `sample`.
+
+```{r}
+# Input 3: Data frame with settings of the hard-to-change factor.
+set.seed(1234) # For reproducibility purposes.
+hard.to.change.settings <- data.frame("x1" = sample(c(-1, 0, 1)))
+```
+
+With these input, we now construct an split-plot design for studying the full quadratic model in 3 factors. The candidate set, batch sizes and settings of the hard-to-change factor are supplied to the arguments `withinData`, `blocksize`, and `wholeBlockData`, respectively. We also ensure that we construct an D-optimal design using `criterion = "D"`, and execute the algorithm 100 times by setting `nRepeats = 100`.
+
+```{r}
+# Note: ~quad(x1, x2, x3) is a fancy way to specify a full quadratic model in
+# three factors x1, x2, and x3.
+opt.split.plot.design <- optBlock(~quad(x1, x2, x3), 
+                                  withinData = candidate.set, 
+                                  blocksize = batch.sizes, 
+                                  wholeBlockData = hard.to.change.settings,
+                                  criterion = "D", nRepeats = 100)
+D.split.plot.design <- opt.split.plot.design$design
+print.data.frame(D.split.plot.design)
+```
+
+The design has three groups of 6 runs, each with a different setting for the temperature factor. For example, the first group comprises the first six runs of the design in which the coded factor $x_1$ is set to 0. The second group includes the next six runs in which this factor is set to 1. The third group has the last six runs in the design in which $x_1$ is set to -1. In this design, we only have to change the level of temperature three times. thereby making it more attractive as an experimental plan for the problem.
+
+Now, let's evaluate the performance of the split-plot design using the variance inflation factors (VIFs).
+
+```{r}
+X.opt.quad <- model.matrix(~quad(x1, x2, x3), data.frame(D.split.plot.design))
+XtX <- t(X.opt.quad)%*%X.opt.quad
+inv.XtX <- solve(XtX)
+var.eff <- diag(inv.XtX)
+```
+
+```{r, collapse = TRUE, echo = c(102)}
+cat("\n Variance inflation factors \n")
+print(nrow(D.split.plot.design)*var.eff)
+```
+
+We see that all VIF values are smaller than 10, which implies that there are no sever issues with multicollinearity. The larger VIF values are for the quadratic effects, which is common when working with these effects.  
+
+# Data Analysis
+
+## The full statistical model
+
+The initial model we used to construct the design contains the intercept, the linear effects, the quadratic effects and the two-factor interactions of the 3 factors. In the presence of a hard-to-change factor, this model needs an additional element, namely the "batch" effect, which accounts for the fact that several runs are conducted under the same setting of the hard-to-change factor. The full model for our experiment is 
+
+$$
+Y = \beta_0 + \sum_{j = 1}^{3} \beta_j x_j + \sum_{j = 1}^{3} \beta_{jj} x^2_{j} + \sum_{j = 1}^{3} \sum_{l>j}^{3} \beta_{jl} x_{j} x_{l} + \gamma + \epsilon,
+$$
+where the extra term $\gamma$ represents the batch effect and it is assumed to follow a normal distribution with mean 0 and variance $\sigma_{b}^2$. It is also assumed that $\gamma$ and $\epsilon$ are independent.
+
+The model above is an example of a **linear mixed model**. Since the batch effect on the response is assumed to be random, it is referred to as a _random_ effect. The coefficients $\beta_j$, $\beta_{jl}$, and $\beta_{jj}$ denote effects of the factors on the response and, since they are not assumed to be random but fixed and unknown quantities, they are called _fixed_ effects.
+
+Under a linear mixed model and an split-plot design, the variances for the error and the batch effect have specific meanings. The variance $\sigma_b^2$ is the variability between the batches or groups and the variance $\sigma^2$ is the variability within the groups. Loosely speaking, the value of $\sigma_b^2$ tells us how different the groups are from each other. If $\sigma_b^2$ is large relative to $\sigma^2$, then the groups are very different from each other. 
+
+An attractive feature of having $\sigma^2$ and $\sigma_b^2$ is that they are are part of a correlation matrix for the responses in the experiments. In other words, the allows us to inform the model that the responses in a group are correlated with each other, because they have been conduced under the same setting for the hard-to-change factor. The technical details of linear mixed models are in Chapters 7 and 10 of "Optimal Design of Experiments: A Case Study Approach" by Goos and Jones.     
+
+## Fitting a linear mixed model
+
+A D-optimal split-plot design with 18 runs was actually conducted in the 3D scaffold experiment. The data is available in the file "split_plot_scaffold_data.csv," which we load below. The data contains other additional responses (thickness, density and modulus) that we do not consider here. 
+
+```{r}
+split.plot.data.original <- read.csv("data/split_plot_scaffold_data.csv", 
+                                     header = T)
+print(split.plot.data.original)
+```
+
+For technical reasons beyond the scope of this demo, a temperature of -20 was used 4 instead of 6 times in the actual experiment. For a similar reason, a temperature of -10 was used 8 times. The numbers of occurrences of these settings differ from what was planned when we constructed the D-optimal split-plot design. However, they do not severely disrupt our discussion of the data analysis.  
+
+For a better analysis in terms of multicollinearity, we recommend to code the actual levels of the factors to -1, 0 and +1. The new data set with the coded levels is constructed below.
+
+```{r}
+split.plot.data.coded <- split.plot.data.original
+split.plot.data.coded[,1] <- (split.plot.data.original[,1] + 10)/10
+split.plot.data.coded[,2] <- (split.plot.data.original[,2] - 10)/3
+split.plot.data.coded[,3] <- (split.plot.data.original[,3] - 15)/15
+print(split.plot.data.coded)
+```
+
+Although the quadratic effects of the factors were used in the design stage, the experimenters decided to omit the quadratic effects of $X_1$ and $X_3$ based on previous experience. The model for the analysis then is:
+
+$$
+Y = \beta_0 + \sum_{j = 1}^{3} \beta_j x_j  + \sum_{j = 1}^{3} \sum_{l>j}^{3} \beta_{jl} x_{j} x_{l} + \beta_{22} x^2_{2} + \gamma + \epsilon,
+$$
+where the interpretation of the coefficients is given in the previous sections.
+
+We are now ready to fit the linear mixed model. To this end, we must use the `lme` function from the `nlme` package. The function has a similar syntax as the `lm` function, except that we need to use a specific term in the formula. To specify the random effect of the hard-to-change factor $X_1$, we add `(1|X1)` to the formula or model we want to fit. The code to do this is shown below.
+
+```{r}
+lmm.model <- lme(Porosity ~ X1 + X2 + X3 + X1:X2 + X1:X3 + X2:X3 + I(X2^2), 
+                random = ~1|X1, data = split.plot.data.coded)
+print(lmm.model)
+```
+
+The output above has two main sections. The section "Fixed" shows the estimates of the coefficients for the fixed effects $\beta_j$, $\beta_{jl}$, and $\beta_{jj}$. The section "Random Effects" shows the estimates for the standard deviations of the error and batch sizes. In the table of that section, the estimate of the former and latter are under the header "Residual" and "(Intercept)," respectively. We have that $\hat{\sigma} = 1.54$ and $\hat{\sigma}_b = 2.87$. A conclusion that we can draw from these estimates is that the standard deviation of the batch effect is 86% larger than the residual standard deviation, because $\hat{\sigma}_b/\hat{\sigma} = 2.87/1.54 = 1.86$. In other words, the variability between the batches is almost twice the residual variability. 
+
+In contrast to the `lm` function, the `lme` function does not use ordinary least squares to find the estimates of the coefficients in the model. Instead, it uses a sophisticated estimation method called _restricted maximum likelihood estimation_. The discussion of the method is beyond the scope of this demo. Some details can be found in Chapter 7 of "Optimal Design of Experiments: A Case Study Approach" by Goos and Jones.      
+
+## Hypothesis tests
+
+Unfortunately, the t-tests and p-values for the coefficients that we know in linear regression do not apply in the world of linear mixed models. Instead, an alternative test called the _Likelihood Ratio (LR) test_  that compares two models is used. We will omit the technical details behind an LR test and only illustrate its usage. 
+
+Let's say that we wish to test the effect of the interaction between $X_1$ and $X_2$. The two models for the LR test are the full model that we just fitted and a smaller model that does not contain that interaction. To fit the small model, we use the `lme` function again, since this model is a linear mixed model too. 
+
+```{r}
+small.lmm.model <- lme(Porosity ~ X1 + X2 + X3 + X1:X3 + X2:X3 + I(X2^2), 
+                random = ~1|X1, data = split.plot.data.coded)
+```
+
+To compare the two models using the LR test, we use the `anova` function. The input of this function are the two models.
+
+```{r warning=FALSE}
+LR.test <- anova(lmm.model, small.lmm.model)
+print.data.frame(LR.test)
+```
+
+Again, most of the output from an LR test is beyond the scope of this demo. Here, we concentrate on the p-value shown in the last column of the table above. This p-value is associated to a test of the hypotheses: 
+
+$$H_0: \beta_{12} = 0 \text{ versus } H_1: \beta_{12} \neq 0.$$ 
+
+A p-value smaller than an  $\alpha = 0.05$ indicates that we reject the null hypothesis $H_0$ and so, the interaction effect is significant. Otherwise, we conclude that there is not enough information to reject $H_0$. In this case, we conclude that the interaction between $X_1$ and $X_2$ is significant because the p-value is smaller than 0.05.
+
+We can use a similar procedure to test the significance of the other fixed effects in the model. We just need to construct a small model without the effect we wish to test and use the LR test through the `anova` function. So, we need to test one fixed effect at a time. For more details on linear mixed effects models, we refer to the textbook entitled "Mixed-effects models in S and S-PLUS" by Pinheiro and Bates. 
+
+### References
+
+The 3D scaffold split-plot experiment is inspired by Liu, J., Zhang, J., James, P. F., and Yousefi A.-M., "I-optimal design of ply(lactic-co-glycolic) Acid/Hydroxyapatite three-dimensional scaffolds produced by thermally induced phase separation" published in Polymer Engineering and Science in 2019.
+
+

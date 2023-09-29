@@ -1,0 +1,166 @@
+---
+title: "Constructing a D-optimal design with blocks"
+author: |
+  | Alan R. Vazquez
+  | Department of Industrial Engineering
+  | University of Arkansas
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    df_print: paged
+  pdf_document: default
+---
+```{r message=FALSE}
+library(FrF2) # To construct two-level fractional factorial designs.
+library(AlgDesign) # To construct algorithmically-generated designs.
+library(corrplot) # To evaluate designs using color maps on correlations.
+```
+
+**Note**: If you use this demo, please cite "Vazquez, A. R. and Xuan, X. (2023). A review of undergraduate courses in Design of Experiments offered by American universities. Unpublished manuscript."
+
+# An screening experiment for identifying influential drugs
+
+A group of scientists plans to study the effect of 10 drugs on the inhibition of tuberculosis. Previous knowledge about the drugs suggests that some of them may have individual (main) effects and drug-drug (two-factor) interactions that are influential. Each drug or treatment factor will be studied at two different levels: in and out of the drug combo. The names and labels of the factors are shown in the table below.
+
+| Label | Drug                       | Low  | High  |
+|:-----:|:---------------------------|:----:|:----:|
+$X_1$   | Amoxicillin                | Out  | In   |
+$X_2$   | Clofazimine                | Out  | In   |
+$X_3$   | Cyclosorine                | Out  | In   |
+$X_4$   | Ethambutol                 | Out  | In   |
+$X_5$   | Isoniazid                  | Out  | In   |
+$X_6$   | Linezolid                  | Out  | In   |
+$X_7$   | Moxifloxacin               | Out  | In   |
+$X_8$   | PA-824                     | Out  | In   |
+$X_9$   | _para_-aminosalicylic acid | Out  | In   |
+$X_{10}$  | Prothionamide              | Out  | In   |
+Table: Drugs under study.
+
+The goal of the screening experiment is to identify the drugs with the influential effects. The scientists assume that three-factor and higher-order interactions are negligible. 
+
+To conduct the experiment, the scientists booked the laboratory for two days. In each day, 32 tests can be conducted. A requirement of the scientists is to **protect the results against possible day-to-day variability**.
+
+# Fractional factorial design with blocks
+
+A traditional alternative for the experiment is to use a two-level fractional factorial design. More specifically, we can use a $2^{10-4}$ design in two blocks of size 32. To construct the design, we use the `FrF2` function of the R library with the same name.
+
+```{r}
+block.design <- FrF2(nruns = 64, nfactors = 10, blocks = 2, 
+                     factor.names = c("X1", "X2", "X3", "X4", "X5", "X6", "X7",
+                                      "X8", "X9", "X10"))
+print.data.frame(block.design)
+```
+
+The generators and alias structure of the blocked design are shown below.
+
+```{r, collapse = TRUE, echo = c(57, 59)}
+cat("Generators of the design \n")
+generators(block.design)
+cat("Alias structure \n")
+design.info(block.design)$aliased
+```
+
+Alternatively, we can evaluate blocked designs using the color map on correlation. 
+
+```{r, fig.align='center'}
+# Extract the design.
+frf.des <- desnum(block.design)
+# Create the model matrix including the intercept, block effect, main effects
+# and two-factor interactions.
+X.frfa <- model.matrix(~Blocks1+(X1+X2+X3+X4+X5+X6+X7+X8+X9+X10)^2-1, 
+                       data.frame(frf.des))
+
+# Create color map on pairwise correlations.
+contrast.vectors.correlations.opt <- cor(X.frfa)
+corrplot(contrast.vectors.correlations.opt, type = "full", addgrid.col = "gray",
+         tl.col = "black", tl.srt = 90, method = "color", tl.cex=0.8)
+```
+
+We see that most non-diagonal entries in the color map are white. For example, the cells involving the Block effect (labeled as `Blocks1`) are white, which imply that the block effect is not confounded with main effects nor two-factor interactions. However, there are cells involving two-factor interactions that are dark blue, meaning that the are fully correlated (correlation equal to 1). So, they cannot be estimated simultaneously. This issue is also shown in the alias structure shown above. For example, the alias chains include `AC = CG` implying that the interaction between $X_1$ and $X_2$ is aliased with that between $X_3$ and $X_7$.
+
+# D-optimal design in blocks
+
+Let's see if we can construct a better alternative for the experiment using algorithmically-generated designs. The `AlgDesign` package has a function called `optBlock` to construct D-optimal designs in blocks. To use this function, we need two types of input. The first one is a candidate set with the 1,024 test combinations of a full factorial design in 10 factors.
+
+```{r}
+# Input 1: Candidate set.
+candidate.set <- gen.factorial(levels=2, nVars = 10, 
+                              varNames = c("X1", "X2", "X3", "X4", "X5", "X6", 
+                                           "X7", "X8", "X9", "X10"))
+```
+
+The second input is a vector with the sizes of the blocks. Specifically, it is a $1 \times b$ vector whose entries are the block sizes and $b$ is the number of blocks. In our case, we need two blocks of size 32.
+
+```{r}
+# Input 2: Vector with block sizes.
+block.sizes <- c(32, 32)
+```
+
+With these input, we now construct a blocked design for studying the model including the intercept, the main effects and the two-factor interactions of the 10 factors. The candidate set and block sizes are supplied to the arguments `withinData` and `blocksize`, respectively. We also ensure that we construct a D-optimal design using `criterion = "D"`, and execute the algorithm 10 times by setting `nRepeats = 100`.
+
+```{r}
+opt.block.design <- optBlock(~(X1+X2+X3+X4+X5+X6+X7+X8+X9+X10)^2, 
+                             withinData = candidate.set, blocksize = block.sizes, 
+                             criterion = "D", nRepeats = 100)
+print.data.frame(opt.block.design$design)
+```
+
+In the design generated by the function, the first 32 runs are for block 1 and the last 32 runs are for block two. To conduct the experiment, it is useful to add an extra column to this design with the (categorical) blocking factor. We achieve this by using the code below.
+
+```{r}
+# First, we create the numeric column.
+block.col <- c(rep(1, 32), rep(2, 32)) 
+# Next, we tell R that the blocking factor is categorical.
+block.factor <- factor(block.col) 
+# Finally, we ensure that R uses the coding -1 and + 1 instead of 
+# a dummy coding for this factor. This is done using the Helmert coding.
+contrasts(block.factor) <- contr.helmert(2)
+```
+
+For a blocking factor with two blocks, it is common to code the blocks 1 and 2 as -1 and +1, respectively. That is why we run the last few lines of code above. Now, we attach the column to the design.
+
+```{r}
+D.opt.blocks <- data.frame("Block" = block.factor, opt.block.design$design)
+print.data.frame(D.opt.blocks)
+```
+
+We evaluate the design using the color map on correlations below. 
+
+```{r, fig.align='center'}
+# Visualize the aliasing in the design.
+# Create the model matrix including main effects and two-factor interactions.
+X.dopt <- model.matrix(~Block + (X1+X2+X3+X4+X5+X6+X7+X8+X9+X10)^2, data = D.opt.blocks)
+
+# Create color map on pairwise correlations.
+contrast.vectors.correlations.opt <- cor(X.dopt[,-1])
+corrplot(contrast.vectors.correlations.opt, type = "full", addgrid.col = "gray",
+         tl.col = "black", tl.srt = 90, method = "color", tl.cex=0.8)
+
+```
+
+In the color map for the blocked D-optimal design, none of the non-diagonal entries are dark blue or dark red, which means that the effects are not fully correlated with each other. This is in contrast with the blocked fractional factorial design above, in which some interactions are fully correlated. 
+
+An additional and attractive advantage of the blocked D-optimal design is that it can estimate the model with the block effect, and the main effects and two-factor interactions of the factors. Recall that this is not possible with the blocked fractional factorial design because some effects are fully correlated or aliased. Because the blocked D-optimal design can estimate the model, we can compute the variance inflation factor (VIF) for each of its coefficients.
+
+```{r}
+# Compute the model matrix.
+X.dopt <- model.matrix(~Block + (X1+X2+X3+X4+X5+X6+X7+X8+X9+X10)^2, D.opt.blocks)
+# Calculate the variance-covariance matrix.
+XtX <- t(X.dopt)%*%X.dopt
+inv.XtX <- solve(XtX) 
+# Record the diagonal elements of this matrix.
+var.eff <- diag(inv.XtX)
+```
+
+```{r, collapse = TRUE, echo = c(155)}
+cat("\n Variance inflation factors \n")
+print(nrow(D.opt.blocks)*var.eff)
+```
+
+The VIF values of this designs are not larger than 10, which is a threshold we used for indicating severe multicollinearity. Because of this and the fact that it can estimate the model of interest, we prefer the blocked D-optimal design over the blocked fractional factorial design.
+
+## References
+
+The drug combination experiment is inspired by the screening experiment of Silva, A., Lee, B.-Y., Clemens, D. L., Kee, T., Ding, X., Ho, C.-M., and Horwitz, M. A., "Output-Driven Feedback System Control Platform Optimizes Combinatorial Therapy of Tuberculosis using a Macrophage Cell Culture Model" published in the Proceedings of the National Academy of Science in 2016.
+
+

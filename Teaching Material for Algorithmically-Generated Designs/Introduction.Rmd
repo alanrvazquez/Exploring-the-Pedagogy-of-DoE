@@ -1,0 +1,232 @@
+---
+title: "Introduction to Algorithmically-Generated Designs"
+author: |
+  | Alan R. Vazquez
+  | Department of Industrial Engineering
+  | University of Arkansas
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    df_print: paged
+  pdf_document: default
+---
+
+```{r message=FALSE}
+library(FrF2) # To construct two-level fractional factorial designs.
+library(AlgDesign) # To construct algorithmically-generated designs.
+library(corrplot) # To evaluate designs using color maps on correlations.
+```
+
+**Note**: If you use this demo, please cite "Vazquez, A. R. and Xuan, X. (2023). A review of undergraduate courses in Design of Experiments offered by American universities. Unpublished manuscript."
+
+# Fractional factorial design with 32 runs and 8 factors
+
+Let's consider an experimental problem involving the study of 8 factors at two levels. Let's assume that the initial budget for the experiment allows us to conduct 32 runs. We can generate a two-level fractional factorial design using the `FrF2` function of the `FrF2` library.
+
+```{r}
+frfact.design <- FrF2(nruns = 32, nfactors = 8, randomize = F)
+```
+
+The generators, alias structure, resolution and world length pattern of the design are shown below.
+
+```{r, collapse = TRUE, echo = c(28, 30, 32)}
+cat("Generators of the design \n")
+generators(frfact.design)
+cat("Alias structure \n")
+design.info(frfact.design)$aliased
+cat("Resolution and word length pattern \n")
+design.info(frfact.design)$catlg.entry
+```
+
+The design has a resolution of IV. Therefore, it provides some aliased two-factor interactions. For example, AB = CF = DG. The complete design is shown below.
+
+```{r}
+D.one <- desnum(frfact.design) # Extract the design.
+print(D.one) # Print the design.
+```
+
+We can visualize the aliasing in this design using a color map on correlations. The non-diagonal cells in the color map show the correlations between two effect estimates. The color map shows the correlations using a red to blue gradient, where dark blue and dark red imply a correlation equal to 1 and -1, respectively. A white cell in the color map implies that the corresponding effect estimates are not correlated. Ideally, the color map on correlations has white in all its non-diagonal cells.
+
+```{r, fig.align='center'}
+# Visualize the aliasing in the design.
+# Create the model matrix including main effects and two-factor interactions.
+X.one <- model.matrix(~(A + B + C + D + E + F + G + H)^2-1, data.frame(D.one))
+
+# Create color map on pairwise correlations.
+contrast.vectors.correlations.one <- cor(X.one)
+corrplot(contrast.vectors.correlations.one, type = "full", addgrid.col = "gray",
+         tl.col = "black", tl.srt = 90, method = "color", tl.cex=0.8)
+```
+
+The color map for the 32-run fractional factorial design has some non-diagonal cells with the color dark blue. This means that some pairs of effects are fully correlated or, equivalently, aliased. It is easy to see that the problematic effects are given by the alias structure for the two-factor interactions shown below.
+
+```{r, collapse = TRUE, echo = c(58)}
+cat("Alias structure for two-factor interactions\n")
+design.info(frfact.design)$aliased$fi
+```
+
+# Fractional factorial design with 64 runs and 8 factors
+
+If we wish to identify the active two-factor interactions, the 32-run 8-factor fractional factorial design is not satisfactory because it provides pairs of interactions that are fully aliased. To overcome this issue, let's consider a larger fractional factorial design with 64 runs. 
+
+Note that fractional factorial designs have a run size $2^{k-p}$, where $k$ is the number of factors and $p$ the number of factors confounded with interactions of other factors. Therefore, the number of runs must be a power of 2. 
+
+We construct the 64-run fractional factorial design using the `FrF2` function.
+
+```{r}
+larger.frfact.design <- FrF2(nruns = 64, nfactors = 8, randomize = F)
+```
+
+The generators, alias structure, resolution and world length pattern of the larger design are shown below.
+
+```{r, collapse = TRUE, echo = c(78, 80, 82)}
+cat("Generators of the design \n")
+generators(larger.frfact.design)
+cat("Alias structure \n")
+design.info(larger.frfact.design)$aliased
+cat("Resolution and word length pattern \n")
+design.info(larger.frfact.design)$catlg.entry
+```
+
+
+The design has a resolution of V. Therefore, the main effects and two-factor interactions are not aliased with each other. The complete design is shown below.
+
+```{r}
+D.two <- desnum(larger.frfact.design) # Extract the design. 
+print(D.two) # Print the design.
+```
+
+We visualize the aliasing in this design using the color map on correlations below.
+
+```{r, fig.align='center'}
+# Create the model matrix including main effects and two-factor interactions.
+X.two <- model.matrix(~(A + B + C + D + E + F + G + H)^2-1, data.frame(D.two))
+
+# Create color map on pairwise correlations.
+contrast.vectors.correlations.two <- cor(X.two)
+corrplot(contrast.vectors.correlations.two, type = "full", addgrid.col = "gray",
+         tl.col = "black", tl.srt = 90, method = "color", tl.cex=0.8)
+```
+
+The color map is the best possible because the off-diagonal elements are all white, corresponding to correlations equal to zero.
+
+# An alternative design  
+
+The $2^{8-2}$ design with 64 runs is great since it allows us to estimate the two-factor interactions. What is not so great is that the $2^{8-2}$ design is twice as expensive as the $2^{8-3}$ design with 32 runs.
+
+**Is there anything in between 32 and 64 runs?** Well, if you are really interested in the main effects and the two-factor interactions, then you need to estimate:
+
+- 1 intercept
+- 8 main effects
+- 8 × 7 / 2 = 28 two-factor interaction effects
+
+In other words, you need to estimate a linear regression model with 1 intercept, 8 main effects, and 28 two-factor interactions. Therefore, an experiment with 1 + 8 + 28 = 37 tests can do the job! Recall that, to estimate a linear regression model with 37 coefficients, we need at least 37 degrees of freedom coming from observations in the data set, which will be collected after we conduct the experiment.
+
+To construct a design with 37 tests, we will use the function called `optFederov` from the `AlgDesign` library. An important input to the function is a so-called candidate set, which is generally is just a full factorial design. For a user-specified run size $n$, the `optFederov` function finds the best set of $n$ test combinations among all possible sets of the same size in the candidate set. In order words, it finds the best fraction of the full factorial design with $n$ runs, a number that must be larger than the number of coefficients in the model. To achieve this complicated task, the function uses a computationally-efficient algorithm that must be executed many times to maximize the chances of obtaining a good design. The details of the algorithm are beyond the scope of this demo.
+
+So, let's generate a candidate set consisting of the test combinations from a two-level full factorial design in 8 factors. To this end, we use the function `gen.factorial`.
+
+```{r}
+candidate.set <- gen.factorial(levels=2, nVars = 8, 
+                              varNames = c("A","B","C", "D", "E", "F", "G", "H"))
+```
+
+Now that we have our candidate set, we can find the 37-run design using the `optFederov` function. To this end, we must supply three input: the formula describing the linear regression model (`frml`), the candidate set (argument `data`), the number of runs (`nTrials`), and the number of executions of the search algorithms (`nRepeats`). Ideally, the number of executions of the algorithm is larger than 100 or even 1,000 for complex problems.
+
+```{r}
+# We use a model including the intercept, all main effects and all
+# two-factor interactions.
+alternative.design <- optFederov(~(A + B + C + D + E + F + G + H)^2, 
+                                 data = candidate.set, nTrials = 37, nRepeats = 100)
+```
+
+The design obtained is shown below.
+
+```{r}
+print.data.frame(alternative.design$design)
+```
+
+We can visualize the aliasing in this design using a color map on correlations.
+
+```{r, fig.align='center'}
+# Visualize the aliasing in the design.
+D.alt <- alternative.design$design # Extract the design.
+
+# Create the model matrix including main effects and two-factor interactions.
+X.alt <- model.matrix(~(A + B + C + D + E + F + G + H)^2-1, data.frame(D.alt))
+
+# Create color map on pairwise correlations.
+contrast.vectors.correlations.alt <- cor(X.alt)
+corrplot(contrast.vectors.correlations.alt, type = "full", addgrid.col = "gray",
+         tl.col = "black", tl.srt = 90, method = "color", tl.cex=0.8)
+```
+
+Although the color map above does not have a dark blue or dark red color, meaning that pairs of effects are not fully correlated. This is in contrast with the 32-run fractional factorial design with a color map in which some cells are dark blue. However, the non-diagonal cells are not white in the color map. To overcome this issue, we can increase the run size of the design.
+
+What about a design with 48 runs? We have that 48 is right between 32 and 64.
+
+```{r}
+alternative.design.two <-optFederov(~(A + B + C + D + E + F + G + H)^2, 
+                                    candidate.set, nTrials = 48, nRepeats = 100)
+print.data.frame(alternative.design.two$design)
+```
+
+
+We visualize the aliasing in this 48-run design using a color map on correlations.
+
+```{r, fig.align='center'}
+# Extract the design.
+D.alt.two <- alternative.design.two$design 
+# Create the model matrix including main effects and two-factor interactions.
+X.alt.two <- model.matrix(~(A + B + C + D + E + F + G + H)^2-1, data.frame(D.alt.two))
+
+# Create color map on pairwise correlations.
+contrast.vectors.correlations.alt.two <- cor(X.alt.two)
+corrplot(contrast.vectors.correlations.alt.two, type = "full", addgrid.col = "gray",
+         tl.col = "black", tl.srt = 90, method = "color", tl.cex=0.8)
+```
+
+The new color map has non-diagonal cells whose color is closer to be white than for the 37-run design. In general, the larger the run size of the design, the larger the number of non-diagonal cells that are white in the color map on correlations.
+
+# Evaluation of experimental designs using Variance Inflation Factors
+
+Here, we introduce an alternative metric to evaluate experimental designs obtained from the `AlgDesign` library. Due to multicollinearity, the estimates of the $\beta_i$'s are dependent or correlated. Consequently, the variance and standard error of the estimates are inflated, which is problematic because it may lead to type-II errors. Remember that we identify the active effects using t-tests for the coefficients in the linear regression model. The $t$ ratios are calculated as
+
+$$
+\frac{\hat{\beta}_i}{se(\hat{\beta}_i)},
+$$
+
+where $\hat{\beta}_i$ is the estimated coefficient using ordinary least squares and $se(\hat{\beta}_i)$ is the standard error of this estimate. The standard error is obtained by taking the square root of the *i*th diagonal element of the variance-covariance matrix $\sigma^2 (\mathbf{X}^{T}\mathbf{X})^{-1}$. The minimum possible value for this standard error is $\sigma /\sqrt{n}$, where $n$ is the run size. The $sd(\hat{\beta}_i)$ given by a design may be large or very large than the minimum, depending on the degree of multicollinearity.
+
+The Variance Inflation Factor (VIF) measures the inflation in the variance (and, equivalently, the standard error) of the ordinary least squares estimates of a coefficient due to multicollinearity. Technically, the VIF is
+$$
+\text{VIF} = n v_i,
+$$
+where $v_i = sd(\hat{\beta}_i)^2$. The minimum of a VIF is one, which is achieved when the estimates are uncorrelated with each other. Generally, VIF values larger than 10 are deemed as problematic.
+
+To the best of our knowledge, there is no package that calculate the VIF. Instead, we compute it manually as shown below.
+
+```{r}
+# We need to include the intercept when computing the VIF.
+X.alt <- model.matrix(~(A + B + C + D + E + F + G + H)^2, data.frame(D.alt))
+X.alt.two <- model.matrix(~(A + B + C + D + E + F + G + H)^2, data.frame(D.alt.two))
+
+# Variance-covariance matrix of 37-run design. Assuming sigma^2 = 1
+var.eff.one <- diag(solve(t(X.alt)%*%X.alt))
+
+# Variance-covariance matrix of 48-run design. Assuming sigma^2 = 1
+var.eff.two <- diag(solve(t(X.alt.two)%*%X.alt.two))
+
+results.opt <- data.frame('Var.37run' = var.eff.one, 'VIF.37run' = nrow(X.alt)*var.eff.one,
+           'Var.48run' = var.eff.two, 'VIF.48run' = nrow(X.alt.two)*var.eff.two)
+print.data.frame(results.opt)
+```
+
+For the 37- and 48-run designs, the table above shows the variances and VIF for the coefficients in a linear regression model including an intercept, all main effects and all two-factor interactions. Generally, the variances and VIF values are smaller for the 48-run design than for the 37-run design.
+
+We end this demo with the remark that the VIF can only be computed when the design can estimate the model under study. Therefore, we cannot compute the VIF values for 32-run fractional factorial design, because it cannot estimate all two-factor interactions simultaneously. In this case, we can use the color map on correlations to compare this design with those obtained from the `AlgDesign` library.
+
+## Acknowledgements 
+
+The demo is an adaptation of an example given by Prof. Peter Goos in his class entitled "Experimental Design" at the KU Leuven. 
+
