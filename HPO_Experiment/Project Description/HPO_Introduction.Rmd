@@ -3,12 +3,14 @@ title: "Parameter Tuning of Random Forest using Design of Experiments"
 author: |
   | Alan R. Vazquez
   | Department of Industrial Engineering
-  | University of Arkansas
-output: html_document
+  | Tecnologico de Monterrey
 date: "`r Sys.Date()`"
+output:
+  pdf_document: default
+  html_document: default
 ---
 
-Note: If you use this application, please cite "Vazquez, A. R. and Xuan, X. (2023). A review of undergraduate courses in Design of Experiments offered by American universities. Unpublished manuscript."
+Note: If you use this application, please cite "Vazquez, A. R. and Xuan, X. (2024). A review of courses in Design of Experiments offered to undergraduate students at American universities." To Appear in *The Americam Statistician*.
 
 ## Introduction
 
